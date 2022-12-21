@@ -193,7 +193,8 @@ void setup()
  */
 void loop()
 {
-	api.system.sleep.all();
+	// api.system.sleep.all();
+	api.system.scheduler.task.destroy();
 }
 
 void handle_rak13011(void *)
