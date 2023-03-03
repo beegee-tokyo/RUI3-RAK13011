@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <CayenneLPP.h>
+#include "ArrayQueue.h"
 
 //******************************************************************//
 // RAK13011 INT1_PIN
@@ -12,7 +13,7 @@
 // Slot F      WB_IO6
 //******************************************************************//
 
-#define RAK13011_SLOT 'C'
+#define RAK13011_SLOT 'A'
 
 /** Interrupt pin, depends on slot */
 // Slot A
@@ -41,11 +42,11 @@ uint32_t SW_INT_PIN = WB_IO4;
 uint32_t SW_INT_PIN = WB_IO6;
 #endif
 
-volatile uint8_t events_queue[50] = {0};
-
-volatile uint8_t event_ptr = 0;
+ArrayQueue Fifo;
 
 volatile int switch_status = 0;
+
+volatile bool handler_available = true;
 
 /** Flag if TX is active */
 volatile bool tx_active = false;
@@ -53,9 +54,13 @@ volatile bool tx_active = false;
 /** Initialization results */
 bool ret;
 
-// Functions
+// Forward declarations
 bool init_rak13011(void);
 void handle_rak13011(void *);
+bool init_irq_at(void);
+bool init_status_at(void);
+void switch_int_handler(void);
+void switch_bounce_check(void *);
 
 #define LPP_CHANNEL_BATT 1	  // Base Board
 #define LPP_CHANNEL_SWITCH 48 // RAK13011
@@ -74,26 +79,62 @@ uint8_t g_data_rate = 3;
 /** Frequent data sending time */
 uint32_t g_send_repeat_time = 30000;
 
+/**
+ * @brief IRQ handler, shows status on WisBlock LED's
+ * Triggers the main handler through a timer
+ *
+ */
 void switch_int_handler(void)
 {
-	Serial.println("Interrupt");
+	Serial.println("Interrupt, start bounce check");
 	switch_status = digitalRead(SW_INT_PIN);
+	api.system.timer.start(RAK_TIMER_2, 50, NULL);
+}
+
+/**
+ * @brief Check if status of switch is stable or if a bounce was triggered
+ *
+ */
+void switch_bounce_check(void *)
+{
+	Serial.println("Bounce check");
+	// Serial.println("Interrupt");
+	int new_switch_status = digitalRead(SW_INT_PIN);
+	if (new_switch_status != switch_status)
+	{
+		Serial.println("Bounce detected");
+		return;
+	}
 	if (switch_status == LOW)
 	{
 		digitalWrite(LED_GREEN, HIGH);
 		digitalWrite(LED_BLUE, LOW);
-		events_queue[event_ptr] = 0;
-		event_ptr++;
+		if (!Fifo.enQueue(false))
+		{
+			Serial.println("FiFo full");
+			return;
+		}
 	}
 	else
 	{
 		digitalWrite(LED_GREEN, LOW);
 		digitalWrite(LED_BLUE, HIGH);
-		events_queue[event_ptr] = 1;
-		event_ptr++;
+		if (!Fifo.enQueue(true))
+		{
+			Serial.println("FiFo full");
+			return;
+		}
+		// enable_interrupts();
 	}
-	// Wake the switch handler
-	api.system.timer.start(RAK_TIMER_2, 250, NULL);
+
+	Serial.println("Added event to queue");
+	// Check if the handler is still active
+	if (handler_available)
+	{
+		Serial.println("Start event handler");
+		handler_available = false;
+		handle_rak13011(NULL);
+	}
 }
 
 /**
@@ -120,7 +161,6 @@ void sendCallback(int32_t status)
 {
 	tx_active = false;
 	Serial.printf("TX status %d\n", status);
-	digitalWrite(LED_BLUE, LOW);
 }
 
 /**
@@ -140,7 +180,6 @@ void joinCallback(int32_t status)
 	else
 	{
 		bool result_set = api.lorawan.dr.set(g_data_rate);
-		digitalWrite(LED_BLUE, LOW);
 	}
 }
 
@@ -162,8 +201,8 @@ void setup()
 	pinMode(LED_BLUE, OUTPUT);
 	digitalWrite(LED_BLUE, HIGH);
 
-	pinMode(WB_IO2, OUTPUT);
-	digitalWrite(WB_IO2, HIGH);
+	// pinMode(WB_IO2, OUTPUT);
+	// digitalWrite(WB_IO2, HIGH);
 
 	// Start Serial
 	Serial.begin(115200);
@@ -175,14 +214,35 @@ void setup()
 	Serial.println("Setup the device with WisToolBox or AT commands before using it");
 	Serial.println("------------------------------------------------------");
 
+	// Add custom AT
+	if (!init_irq_at())
+	{
+		Serial.println("Failed to add IRQ change AT command");
+	}
+	if (!init_status_at())
+	{
+		Serial.println("Failed to add status AT command");
+	}
+
 	// Create a timers for handling the events
-	api.system.timer.create(RAK_TIMER_2, handle_rak13011, RAK_TIMER_ONESHOT);
+	api.system.timer.create(RAK_TIMER_2, switch_bounce_check, RAK_TIMER_ONESHOT);
 	api.system.timer.create(RAK_TIMER_3, handle_rak13011, RAK_TIMER_ONESHOT);
 
 	Serial.printf("Initialize Interrupt on GPIO %d\n", SW_INT_PIN);
 	pinMode(SW_INT_PIN, INPUT);
 	attachInterrupt(SW_INT_PIN, switch_int_handler, CHANGE);
 	Serial.println("Interrupt Initialized ");
+
+	if (digitalRead(SW_INT_PIN) == LOW)
+	{
+		digitalWrite(LED_GREEN, HIGH);
+		digitalWrite(LED_BLUE, LOW);
+	}
+	else
+	{
+		digitalWrite(LED_GREEN, LOW);
+		digitalWrite(LED_BLUE, HIGH);
+	}
 }
 
 /**
@@ -193,26 +253,13 @@ void setup()
  */
 void loop()
 {
-	// api.system.sleep.all();
-	api.system.scheduler.task.destroy();
+	api.system.sleep.all();
 }
 
 void handle_rak13011(void *)
 {
-	if (!tx_active && api.lorawan.njs.get())
+	if (!tx_active)
 	{
-		event_ptr -= 1;
-
-		if (switch_status == digitalRead(SW_INT_PIN))
-		{
-			Serial.println("Switch Status confirmed");
-		}
-		else
-		{
-			Serial.println("Switch bouncing");
-			return;
-		}
-
 		// Reset automatic interval sending if active
 		if (g_send_repeat_time != 0)
 		{
@@ -224,7 +271,9 @@ void handle_rak13011(void *)
 		// Clear payload
 		g_solution_data.reset();
 
-		g_solution_data.addPresence(LPP_CHANNEL_SWITCH, events_queue[event_ptr] == 0 ? 0 : 1);
+		noInterrupts();
+		g_solution_data.addPresence(LPP_CHANNEL_SWITCH, !Fifo.deQueue() ? 0 : 1);
+		interrupts();
 
 		// Add battery voltage
 		g_solution_data.addVoltage(LPP_CHANNEL_BATT, api.system.bat.get());
@@ -245,12 +294,18 @@ void handle_rak13011(void *)
 	}
 	else
 	{
-		Serial.println("Busy or not connected");
+		Serial.println("TX still active");
+		// Fifo.deQueue();
 	}
 
-	if (event_ptr != 0)
+	if (!Fifo.isEmpty())
 	{
 		// Event queue is not empty. Trigger next packet in 5 seconds
 		api.system.timer.start(RAK_TIMER_3, 5000, NULL);
+	}
+	else
+	{
+		handler_available = true;
+		Serial.println("Queue is empty");
 	}
 }
