@@ -1,141 +1,40 @@
-#include <Arduino.h>
-#include <CayenneLPP.h>
-#include "ArrayQueue.h"
-
-//******************************************************************//
-// RAK13011 INT1_PIN
-//******************************************************************//
-// Slot A      WB_IO1
-// Slot B      WB_IO2 ( not recommended, pin conflict with IO2)
-// Slot C      WB_IO3
-// Slot D      WB_IO5
-// Slot E      WB_IO4
-// Slot F      WB_IO6
-//******************************************************************//
-
-#define RAK13011_SLOT 'A'
-
-/** Interrupt pin, depends on slot */
-// Slot A
-#if RAK13011_SLOT == 'A'
-#pragma message "Slot A"
-uint32_t SW_INT_PIN = WB_IO1;
-// Slot B
-#elif RAK13011_SLOT == 'B'
-#pragma message "Slot B"
-uint32_t SW_INT_PIN = WB_IO2;
-// Slot C
-#elif RAK13011_SLOT == 'C'
-#pragma message "Slot C"
-uint32_t SW_INT_PIN = WB_IO3;
-// Slot D
-#elif RAK13011_SLOT == 'D'
-#pragma message "Slot D"
-uint32_t SW_INT_PIN = WB_IO5;
-// Slot E
-#elif RAK13011_SLOT == 'E'
-#pragma message "Slot E"
-uint32_t SW_INT_PIN = WB_IO4;
-// Slot F
-#elif RAK13011_SLOT == 'F'
-#pragma message "Slot F"
-uint32_t SW_INT_PIN = WB_IO6;
-#endif
-
-ArrayQueue Fifo;
-
-volatile int switch_status = 0;
-
-volatile bool handler_available = true;
-
-/** Flag if TX is active */
-volatile bool tx_active = false;
+/**
+ * @file RUI3-Modular.ino
+ * @author Bernd Giesecke (bernd@giesecke.tk)
+ * @brief RUI3 based code for easy testing of WisBlock I2C modules
+ * @version 0.1
+ * @date 2022-10-29
+ *
+ * @copyright Copyright (c) 2022
+ *
+ */
+#include "main.h"
 
 /** Initialization results */
 bool ret;
 
-// Forward declarations
-bool init_rak13011(void);
-void handle_rak13011(void *);
-bool init_irq_at(void);
-bool init_status_at(void);
-void switch_int_handler(void);
-void switch_bounce_check(void *);
-
-#define LPP_CHANNEL_BATT 1	  // Base Board
-#define LPP_CHANNEL_SWITCH 48 // RAK13011
-
 /** LoRaWAN packet */
-CayenneLPP g_solution_data(255);
+WisCayenne g_solution_data(255);
 
-/** fPort to send packages */
-uint8_t set_fPort = 2;
 /** Packet is confirmed/unconfirmed (Set with AT commands) */
 bool g_confirmed_mode = false;
 /** If confirmed packet, number or retries (Set with AT commands) */
 uint8_t g_confirmed_retry = 0;
 /** Data rate  (Set with AT commands) */
 uint8_t g_data_rate = 3;
-/** Frequent data sending time */
-uint32_t g_send_repeat_time = 30000;
 
-/**
- * @brief IRQ handler, shows status on WisBlock LED's
- * Triggers the main handler through a timer
- *
- */
-void switch_int_handler(void)
-{
-	Serial.println("Interrupt, start bounce check");
-	switch_status = digitalRead(SW_INT_PIN);
-	api.system.timer.start(RAK_TIMER_2, 50, NULL);
-}
+/** Flag if transmit is active, used by some sensors */
+volatile bool tx_active = false;
 
-/**
- * @brief Check if status of switch is stable or if a bounce was triggered
- *
- */
-void switch_bounce_check(void *)
-{
-	Serial.println("Bounce check");
-	// Serial.println("Interrupt");
-	int new_switch_status = digitalRead(SW_INT_PIN);
-	if (new_switch_status != switch_status)
-	{
-		Serial.println("Bounce detected");
-		return;
-	}
-	if (switch_status == LOW)
-	{
-		digitalWrite(LED_GREEN, HIGH);
-		digitalWrite(LED_BLUE, LOW);
-		if (!Fifo.enQueue(false))
-		{
-			Serial.println("FiFo full");
-			return;
-		}
-	}
-	else
-	{
-		digitalWrite(LED_GREEN, LOW);
-		digitalWrite(LED_BLUE, HIGH);
-		if (!Fifo.enQueue(true))
-		{
-			Serial.println("FiFo full");
-			return;
-		}
-		// enable_interrupts();
-	}
+/** fPort to send packages */
+uint8_t set_fPort = 2;
 
-	Serial.println("Added event to queue");
-	// Check if the handler is still active
-	if (handler_available)
-	{
-		Serial.println("Start event handler");
-		handler_available = false;
-		handle_rak13011(NULL);
-	}
-}
+/** Enable automatic DR selection based on payload size */
+#if AUTO_DR == 1
+bool auto_dr_enabled = true;
+#else
+bool auto_dr_enabled = false;
+#endif
 
 /**
  * @brief Callback after packet was received
@@ -144,12 +43,13 @@ void switch_bounce_check(void *)
  */
 void receiveCallback(SERVICE_LORA_RECEIVE_T *data)
 {
-	Serial.printf("RX, port %d, DR %d, RSSI %d, SNR %d\n", data->Port, data->RxDatarate, data->Rssi, data->Snr);
+	MYLOG("RX-CB", "RX, port %d, DR %d, RSSI %d, SNR %d", data->Port, data->RxDatarate, data->Rssi, data->Snr);
 	for (int i = 0; i < data->BufferSize; i++)
 	{
 		Serial.printf("%02X", data->Buffer[i]);
 	}
 	Serial.print("\r\n");
+	tx_active = false;
 }
 
 /**
@@ -159,8 +59,9 @@ void receiveCallback(SERVICE_LORA_RECEIVE_T *data)
  */
 void sendCallback(int32_t status)
 {
+	MYLOG("TX-CB", "TX status %d", status);
+	digitalWrite(LED_BLUE, LOW);
 	tx_active = false;
-	Serial.printf("TX status %d\n", status);
 }
 
 /**
@@ -170,43 +71,54 @@ void sendCallback(int32_t status)
  */
 void joinCallback(int32_t status)
 {
+	// MYLOG("JOIN-CB", "Join result %d", status);
 	if (status != 0)
 	{
-		if (!(ret = api.lorawan.join()))
-		{
-			Serial.println("LoRaWan OTAA - join fail!\n");
-		}
+		MYLOG("JOIN-CB", "LoRaWan OTAA - join fail! \r\n");
+		// To be checked if this makes sense
+		// api.lorawan.join();
 	}
 	else
 	{
-		bool result_set = api.lorawan.dr.set(g_data_rate);
+		// bool result_set = api.lorawan.dr.set(g_data_rate);
+		// MYLOG("JOIN-CB", "Set the data rate  %s", result_set ? "Success" : "Fail");
+		MYLOG("JOIN-CB", "LoRaWan OTAA - joined! \r\n");
+		digitalWrite(LED_BLUE, LOW);
 	}
 }
 
+/**
+ * @brief Arduino setup, called once after reboot/power-up
+ *
+ */
 void setup()
 {
-	g_confirmed_mode = api.lorawan.cfm.get();
+	if (api.lorawan.nwm.get() == 1)
+	{
+		g_confirmed_mode = api.lorawan.cfm.get();
 
-	g_confirmed_retry = api.lorawan.rety.get();
+		g_confirmed_retry = api.lorawan.rety.get();
 
-	g_data_rate = api.lorawan.dr.get();
+		g_data_rate = api.lorawan.dr.get();
 
-	// Setup the callbacks for joined and send finished
-	api.lorawan.registerRecvCallback(receiveCallback);
-	api.lorawan.registerSendCallback(sendCallback);
-	api.lorawan.registerJoinCallback(joinCallback);
+		// Setup the callbacks for joined and send finished
+		api.lorawan.registerRecvCallback(receiveCallback);
+		api.lorawan.registerSendCallback(sendCallback);
+		api.lorawan.registerJoinCallback(joinCallback);
+	}
 
 	pinMode(LED_GREEN, OUTPUT);
 	digitalWrite(LED_GREEN, HIGH);
 	pinMode(LED_BLUE, OUTPUT);
 	digitalWrite(LED_BLUE, HIGH);
 
-	// pinMode(WB_IO2, OUTPUT);
-	// digitalWrite(WB_IO2, HIGH);
+	pinMode(WB_IO2, OUTPUT);
+	digitalWrite(WB_IO2, HIGH);
 
 	// Start Serial
 	Serial.begin(115200);
-	// For RAK3172 just wait a little bit for the USB to be ready
+
+	// Delay for 5 seconds to give the chance for AT+BOOT
 	delay(5000);
 
 	Serial.println("RAKwireless RUI3 Node");
@@ -214,35 +126,106 @@ void setup()
 	Serial.println("Setup the device with WisToolBox or AT commands before using it");
 	Serial.println("------------------------------------------------------");
 
-	// Add custom AT
-	if (!init_irq_at())
+	// Initialize module
+	Wire.begin();
+	if (!init_rak13011())
 	{
-		Serial.println("Failed to add IRQ change AT command");
-	}
-	if (!init_status_at())
-	{
-		Serial.println("Failed to add status AT command");
-	}
-
-	// Create a timers for handling the events
-	api.system.timer.create(RAK_TIMER_2, switch_bounce_check, RAK_TIMER_ONESHOT);
-	api.system.timer.create(RAK_TIMER_3, handle_rak13011, RAK_TIMER_ONESHOT);
-
-	Serial.printf("Initialize Interrupt on GPIO %d\n", SW_INT_PIN);
-	pinMode(SW_INT_PIN, INPUT);
-	attachInterrupt(SW_INT_PIN, switch_int_handler, CHANGE);
-	Serial.println("Interrupt Initialized ");
-
-	if (digitalRead(SW_INT_PIN) == LOW)
-	{
-		digitalWrite(LED_GREEN, HIGH);
-		digitalWrite(LED_BLUE, LOW);
+		MYLOG("MODS", "Could not initialize RAK13011");
 	}
 	else
 	{
-		digitalWrite(LED_GREEN, LOW);
-		digitalWrite(LED_BLUE, HIGH);
+		Serial.println("+EVT:RAK13011 OK");
 	}
+
+	// Register the custom AT command to get device status
+	if (!init_status_at())
+	{
+		MYLOG("SETUP", "Add custom AT command STATUS fail");
+	}
+	digitalWrite(LED_GREEN, LOW);
+
+	// Register the custom AT command to set the send interval
+	if (!init_interval_at())
+	{
+		MYLOG("SETUP", "Add custom AT command Send Interval fail");
+	}
+
+	// Get saved sending interval from flash
+	get_at_setting();
+
+	// Create a timer.
+	api.system.timer.create(RAK_TIMER_0, sensor_handler, RAK_TIMER_PERIODIC);
+	if (g_send_repeat_time != 0)
+	{
+		// Start a timer.
+		api.system.timer.start(RAK_TIMER_0, g_send_repeat_time, NULL);
+	}
+
+	if (api.lorawan.nwm.get() == 0)
+	{
+		digitalWrite(LED_BLUE, LOW);
+
+		sensor_handler(NULL);
+	}
+#if MY_DEBUG == 0
+	MYLOG("SETUP", "Debug is disabled");
+#else
+	MYLOG("SETUP", "Debug is enabled");
+#endif
+#if AUTO_DR == 0
+	MYLOG("SETUP", "Auto DR is disabled");
+#else
+	MYLOG("SETUP", "Auto DR is enabled");
+#endif
+
+	if (api.lorawan.nwm.get() == 1)
+	{
+		if (g_confirmed_mode)
+		{
+			MYLOG("SETUP", "Confirmed enabled");
+		}
+		else
+		{
+			MYLOG("SETUP", "Confirmed disabled");
+		}
+
+		MYLOG("SETUP", "Retry = %d", g_confirmed_retry);
+
+		MYLOG("SETUP", "DR = %d", g_data_rate);
+	}
+
+	// To be checked if this makes sense
+	// api.lorawan.join();
+}
+
+/**
+ * @brief sensor_handler is a timer function called every
+ * g_send_repeat_time milliseconds. Default is 120000. Can be
+ * changed in main.h
+ *
+ */
+void sensor_handler(void *)
+{
+	MYLOG("UPLINK", "Start");
+	digitalWrite(LED_BLUE, HIGH);
+
+	if (api.lorawan.nwm.get() == 1)
+	{ // Check if the node has joined the network
+		if (!api.lorawan.njs.get())
+		{
+			MYLOG("UPLINK", "Not joined, skip sending");
+			return;
+		}
+	}
+
+	// Clear payload
+	g_solution_data.reset();
+
+	// Add battery voltage
+	g_solution_data.addVoltage(LPP_CHANNEL_BATT, api.system.bat.get());
+
+	// Send the packet
+	send_packet();
 }
 
 /**
@@ -254,58 +237,85 @@ void setup()
 void loop()
 {
 	api.system.sleep.all();
+	// api.system.scheduler.task.destroy();
 }
 
-void handle_rak13011(void *)
+/**
+ * @brief Send the data packet that was prepared in
+ * Cayenne LPP format by the different sensor and location
+ * aqcuision functions
+ *
+ */
+void send_packet(void)
 {
-	if (!tx_active)
+	if (api.lorawan.nwm.get() == 1)
 	{
-		// Reset automatic interval sending if active
-		if (g_send_repeat_time != 0)
+		uint8_t proposed_dr = get_min_dr(api.lorawan.band.get(), g_solution_data.getSize());
+		MYLOG("UPLINK", "Check if datarate allows payload size, proposed is DR %d, current DR is %d", proposed_dr, api.lorawan.dr.get());
+
+		if (proposed_dr == 16)
 		{
-			// Restart a timer
-			api.system.timer.stop(RAK_TIMER_0);
-			api.system.timer.start(RAK_TIMER_0, g_send_repeat_time, NULL);
-		}
-
-		// Clear payload
-		g_solution_data.reset();
-
-		noInterrupts();
-		g_solution_data.addPresence(LPP_CHANNEL_SWITCH, !Fifo.deQueue() ? 0 : 1);
-		interrupts();
-
-		// Add battery voltage
-		g_solution_data.addVoltage(LPP_CHANNEL_BATT, api.system.bat.get());
-
-		// Send the packet
-		Serial.printf("Send packet with size %d on port %d\n", g_solution_data.getSize(), set_fPort);
-
-		// Send the packet
-		if (api.lorawan.send(g_solution_data.getSize(), g_solution_data.getBuffer(), set_fPort)) // , g_confirmed_mode, g_confirmed_retry))
-		{
-			tx_active = true;
-			Serial.println("Packet enqueued");
+			MYLOG("UPLINK", "No matching DR found");
 		}
 		else
 		{
-			Serial.println("Send failed");
+			if (proposed_dr < api.lorawan.dr.get())
+			{
+				if (auto_dr_enabled)
+				{
+					MYLOG("UPLINK", "Proposed DR is lower than current selected, if enabled, switching to lower DR");
+					api.lorawan.dr.set(proposed_dr);
+				}
+			}
+
+			if (proposed_dr > api.lorawan.dr.get())
+			{
+				if (auto_dr_enabled)
+				{
+					MYLOG("UPLINK", "Proposed DR is higher than current selected, if enabled, switching to higher DR");
+					api.lorawan.dr.set(proposed_dr);
+				}
+			}
+		}
+
+		// Send the packet
+		if (api.lorawan.send(g_solution_data.getSize(), g_solution_data.getBuffer(), set_fPort, g_confirmed_mode, g_confirmed_retry))
+		{
+			MYLOG("UPLINK", "Packet enqueued, size %d", g_solution_data.getSize());
+			tx_active = true;
+		}
+		else
+		{
+			MYLOG("UPLINK", "Send failed");
+			tx_active = false;
 		}
 	}
 	else
 	{
-		Serial.println("TX still active");
-		// Fifo.deQueue();
-	}
+		MYLOG("UPLINK", "Send packet with size %d over P2P", g_solution_data.getSize() + 8);
 
-	if (!Fifo.isEmpty())
-	{
-		// Event queue is not empty. Trigger next packet in 5 seconds
-		api.system.timer.start(RAK_TIMER_3, 5000, NULL);
-	}
-	else
-	{
-		handler_available = true;
-		Serial.println("Queue is empty");
+		digitalWrite(LED_BLUE, LOW);
+		uint8_t packet_buffer[g_solution_data.getSize() + 8];
+		if (!api.lorawan.deui.get(packet_buffer, 8))
+		{
+			MYLOG("UPLINK", "Could not get DevEUI");
+		}
+
+		memcpy(&packet_buffer[8], g_solution_data.getBuffer(), g_solution_data.getSize());
+
+		for (int idx = 0; idx < g_solution_data.getSize() + 8; idx++)
+		{
+			Serial.printf("%02X", packet_buffer[idx]);
+		}
+		Serial.println("");
+
+		if (api.lorawan.psend(g_solution_data.getSize() + 8, packet_buffer))
+		{
+			MYLOG("UPLINK", "Packet enqueued");
+		}
+		else
+		{
+			MYLOG("UPLINK", "Send failed");
+		}
 	}
 }

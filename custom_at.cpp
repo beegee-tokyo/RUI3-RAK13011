@@ -1,84 +1,80 @@
 /**
  * @file custom_at.cpp
  * @author Bernd Giesecke (bernd@giesecke.tk)
- * @brief Custom AT commands
+ * @brief
  * @version 0.1
- * @date 2023-01-31
+ * @date 2022-05-12
  *
- * @copyright Copyright (c) 2023
+ * @copyright Copyright (c) 2022
  *
  */
-#include <Arduino.h>
+#include "main.h"
 
-// The GPIO for the external interrupt
-extern uint32_t SW_INT_PIN;
-/** Regions as text array */
-char *regions_list[] = {"EU433", "CN470", "RU864", "IN865", "EU868", "US915", "AU915", "KR920", "AS923", "AS923-2", "AS923-3", "AS923-4"};
-/** Network modes as text array*/
-char *nwm_list[] = {"P2P", "LoRaWAN", "FSK"};
-/** Names of GPIO port numbers */
-char* gpio_name[] = {"WB_IO1", "WB_IO2", "WB_IO3", "WB_IO4", "WB_IO5", "WB_IO6"};
-/** GPIO ports */
-uint32_t gpio_ports[] = {WB_IO1, WB_IO2, WB_IO3, WB_IO4, WB_IO5, WB_IO6};
+// Forward declarations
+int interval_send_handler(SERIAL_PORT port, char *cmd, stParam *param);
+int status_handler(SERIAL_PORT port, char *cmd, stParam *param);
 
-// IRQ handler
-void switch_int_handler(void);
+uint32_t g_send_repeat_time = 0;
 
-int change_irq_handler(SERIAL_PORT port, char *cmd, stParam *param)
+/**
+ * @brief Add send interval AT command
+ *
+ * @return true if success
+ * @return false if failed
+ */
+bool init_interval_at(void)
+{
+	return api.system.atMode.add((char *)"SENDINT",
+								 (char *)"Set/Get the interval sending time values in seconds 0 = off, max 2,147,483 seconds",
+								 (char *)"SENDINT", interval_send_handler,
+								 RAK_ATCMD_PERM_WRITE | RAK_ATCMD_PERM_READ);
+}
+
+/**
+ * @brief Handler for send interval AT commands
+ *
+ * @param port Serial port used
+ * @param cmd char array with the received AT command
+ * @param param char array with the received AT command parameters
+ * @return int result of command parsing
+ * 			AT_OK AT command & parameters valid
+ * 			AT_PARAM_ERROR command or parameters invalid
+ */
+int interval_send_handler(SERIAL_PORT port, char *cmd, stParam *param)
 {
 	if (param->argc == 1 && !strcmp(param->argv[0], "?"))
 	{
 		Serial.print(cmd);
-		int wb_io_num = 0;
-		switch (SW_INT_PIN)
-		{
-		case WB_IO1:
-			wb_io_num = 0;
-			break;
-		case WB_IO2:
-			wb_io_num = 1;
-			break;
-		case WB_IO3:
-			wb_io_num = 2;
-			break;
-		case WB_IO4:
-			wb_io_num = 3;
-			break;
-		case WB_IO5:
-			wb_io_num = 4;
-			break;
-		case WB_IO6:
-			wb_io_num = 5;
-			break;
-		}
-		Serial.printf("=%ld %s\r\n", wb_io_num + 1, gpio_name[wb_io_num]);
+		Serial.printf("=%ld\r\n", g_send_repeat_time / 1000);
 	}
 	else if (param->argc == 1)
 	{
-		Serial.printf("param->argv[0] >> %s\n", param->argv[0]);
+		MYLOG("AT_CMD", "param->argv[0] >> %s", param->argv[0]);
 		for (int i = 0; i < strlen(param->argv[0]); i++)
 		{
 			if (!isdigit(*(param->argv[0] + i)))
 			{
-				Serial.printf("%d is no digit\n", i);
+				MYLOG("AT_CMD", "%d is no digit", i);
 				return AT_PARAM_ERROR;
 			}
 		}
 
-		uint32_t new_irq_pin = strtoul(param->argv[0], NULL, 10);
+		uint32_t new_send_freq = strtoul(param->argv[0], NULL, 10);
 
-		Serial.printf("New GPIO %ld\n", new_irq_pin);
+		MYLOG("AT_CMD", "Requested interval %ld", new_send_freq);
 
-		if ((new_irq_pin < 1) || (new_irq_pin > 6))
+		g_send_repeat_time = new_send_freq * 1000;
+
+		MYLOG("AT_CMD", "New interval %ld", g_send_repeat_time);
+		// Stop the timer
+		api.system.timer.stop(RAK_TIMER_0);
+		if (g_send_repeat_time != 0)
 		{
-			return AT_PARAM_ERROR;
+			// Restart the timer
+			api.system.timer.start(RAK_TIMER_0, g_send_repeat_time, NULL);
 		}
-
-		detachInterrupt(SW_INT_PIN);
-		SW_INT_PIN = gpio_ports[new_irq_pin - 1];
-		Serial.printf("New GPIO %ld %ld\n", new_irq_pin, gpio_ports[new_irq_pin - 1]);
-		pinMode(SW_INT_PIN, INPUT);
-		attachInterrupt(SW_INT_PIN, switch_int_handler, CHANGE);
+		// Save custom settings
+		save_at_setting();
 	}
 	else
 	{
@@ -88,6 +84,35 @@ int change_irq_handler(SERIAL_PORT port, char *cmd, stParam *param)
 	return AT_OK;
 }
 
+/**
+ * @brief Add custom Status AT commands
+ *
+ * @return true AT commands were added
+ * @return false AT commands couldn't be added
+ */
+bool init_status_at(void)
+{
+	return api.system.atMode.add((char *)"STATUS",
+								 (char *)"Get device information",
+								 (char *)"STATUS", status_handler,
+								 RAK_ATCMD_PERM_READ);
+}
+
+/** Regions as text array */
+char *regions_list[] = {"EU433", "CN470", "RU864", "IN865", "EU868", "US915", "AU915", "KR920", "AS923", "AS923-2", "AS923-3", "AS923-4"};
+/** Network modes as text array*/
+char *nwm_list[] = {"P2P", "LoRaWAN", "FSK"};
+
+/**
+ * @brief Print device status over Serial
+ *
+ * @param port Serial port used
+ * @param cmd char array with the received AT command
+ * @param param char array with the received AT command parameters
+ * @return int result of command parsing
+ * 			AT_OK AT command & parameters valid
+ * 			AT_PARAM_ERROR command or parameters invalid
+ */
 int status_handler(SERIAL_PORT port, char *cmd, stParam *param)
 {
 	String value_str = "";
@@ -98,11 +123,17 @@ int status_handler(SERIAL_PORT port, char *cmd, stParam *param)
 	if (param->argc == 1 && !strcmp(param->argv[0], "?"))
 	{
 		Serial.println("Device Status:");
-		value_str = api.system.hwModel.get();
+		/// \todo old API call
+		value_str = api.system.modelId.get();
+		/// \todo new API call
+		// value_str = api.system.hwModel.get();
 		value_str.toUpperCase();
 		Serial.printf("Module: %s\r\n", value_str.c_str());
-		Serial.printf("Version: %s\r\n", api.system.firmwareVer.get().c_str());
-
+		/// \todo old API call
+		Serial.printf("Version: %s\r\n", api.system.firmwareVersion.get().c_str());
+		/// \todo new API call
+		// Serial.printf("Version: %s\r\n", api.system.firmwareVer.get().c_str());
+		Serial.printf("Send time: %d s\r\n", g_send_repeat_time / 1000);
 		nw_mode = api.lorawan.nwm.get();
 		Serial.printf("Network mode %s\r\n", nwm_list[nw_mode]);
 		if (nw_mode == 1)
@@ -172,19 +203,64 @@ int status_handler(SERIAL_PORT port, char *cmd, stParam *param)
 	return AT_OK;
 }
 
-bool init_irq_at(void)
+/**
+ * @brief Get setting from flash
+ *
+ * @return false read from flash failed or invalid settings type
+ */
+bool get_at_setting(void)
 {
-	return api.system.atMode.add((char *)"IRQ",
-								 (char *)" Get/Set GPIO for interrupt input: 1 = WB_IO1 (PB15) 2 = WB_IO2 (PA8) 3 = WB_IO3 (PB12) 4 = WB_IO4 (PB2) 5 - WB_IO5 (PA15) 6 = WB_IO6 (PA9)",
-								 (char *)"IRQ",
-								 change_irq_handler,
-								 RAK_ATCMD_PERM_WRITE | RAK_ATCMD_PERM_READ);
+	uint8_t flash_value[16];
+	if (!api.system.flash.get(SEND_FREQ_OFFSET, flash_value, 5))
+	{
+		MYLOG("AT_CMD", "Failed to read send interval from Flash");
+		return false;
+	}
+	if (flash_value[4] != 0xAA)
+	{
+		MYLOG("AT_CMD", "No valid send interval found, set to default, read 0X%02X 0X%02X 0X%02X 0X%02X",
+			  flash_value[0], flash_value[1],
+			  flash_value[2], flash_value[3]);
+		g_send_repeat_time = 0;
+		save_at_setting();
+		return false;
+	}
+	MYLOG("AT_CMD", "Read send interval 0X%02X 0X%02X 0X%02X 0X%02X",
+		  flash_value[0], flash_value[1],
+		  flash_value[2], flash_value[3]);
+	g_send_repeat_time = 0;
+	g_send_repeat_time |= flash_value[0] << 0;
+	g_send_repeat_time |= flash_value[1] << 8;
+	g_send_repeat_time |= flash_value[2] << 16;
+	g_send_repeat_time |= flash_value[3] << 24;
+	MYLOG("AT_CMD", "Send interval found %ld", g_send_repeat_time);
+	return true;
 }
 
-bool init_status_at(void)
+/**
+ * @brief Save setting to flash
+ *
+ * @return true write to flash was successful
+ * @return false write to flash failed or invalid settings type
+ */
+bool save_at_setting(void)
 {
-	return api.system.atMode.add((char *)"STATUS",
-								 (char *)"Get device information",
-								 (char *)"STATUS", status_handler,
-								 RAK_ATCMD_PERM_READ);
+	uint8_t flash_value[16] = {0};
+	bool wr_result = false;
+	flash_value[0] = (uint8_t)(g_send_repeat_time >> 0);
+	flash_value[1] = (uint8_t)(g_send_repeat_time >> 8);
+	flash_value[2] = (uint8_t)(g_send_repeat_time >> 16);
+	flash_value[3] = (uint8_t)(g_send_repeat_time >> 24);
+	flash_value[4] = 0xAA;
+	MYLOG("AT_CMD", "Writing send interval 0X%02X 0X%02X 0X%02X 0X%02X ",
+		  flash_value[0], flash_value[1],
+		  flash_value[2], flash_value[3]);
+	wr_result = api.system.flash.set(SEND_FREQ_OFFSET, flash_value, 5);
+	if (!wr_result)
+	{
+		// Retry
+		wr_result = api.system.flash.set(SEND_FREQ_OFFSET, flash_value, 5);
+	}
+	wr_result = true;
+	return wr_result;
 }
