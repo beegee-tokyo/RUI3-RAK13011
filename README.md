@@ -56,15 +56,15 @@ The reed relay contacts do not have any debouncing mechanism. It can easily happ
 
 ----
 
-### Arduino Open Source and RAKwireless RUI3 API
+### RAKwireless RUI3 API
 
-The application code is available in two versions.    
-1) The first one is for the open source Arduino BSP and PlatformIO. It works with the WisBlock Core modules RAK4631, RAK11310 and RAK11200 (with RAK13300 LoRa module).     
-The application is based on the [WisBlock-API](https://github.com/beegee-tokyo/WisBlock-API). Instead of running endless in the **`loop()`**, it is using timers and events to keep the MCU in idle/sleep mode as much as possible.
-2) The second version is for RUI3 and works with the RAK4631-R and the RAK3372 Core modules. 
+This source code is for RUI3 and works with the RAK4631-R, the RAK3372 and the RAK11722 Core modules. 
 
 ### ⚠️ WARNING    
 > Due to a GPIO conflict with the RAK3372, The RAK13011 does not work when using Sensor Slot C. With the RAK3372 the RAK13011 must be used in another Sensor Slot.    
+
+### ⚠️ IMPORTANT    
+> Select the sensor slot in the file _**`RAK13011_switch.cpp`**_. This is important, because the GPIO used for interrupts is different for every Sensor Slot.    
 
 ----
 
@@ -82,15 +82,15 @@ For this tutorial I chose the second option:
 
 ## Hardware Used
 
-| BSP Version | Module                                                                                  | Function                        |
-| ---- | --------------------------------------------------------------------------------------- | ------------------------------- |
-| Open Source Arduino BSP | [RAK4631](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK4631/Overview/)   | WisBlock Core Module            |
-| RUI3 | [RAK4631-R](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK4631-R/Overview/)   | WisBlock Core Module            |
-| RUI3 | [RAK3372](https://docs.rakwireless.com/Product-Categories/WisDuo/RAK3172-Evaluation-Board/)   | WisBlock Core Module            |
-| Any | [RAK19003](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK19003/Overview/) | WisBlock Base Board             |
-| Any | [or RAK19007 (for RAK3372)](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK19007/Overview/) | WisBlock Base Board             |
-| Any | [RAK13011](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK13011/Overview/)   | WisBlock Magnetic Switch     |
-| Any | [Optional RAK1901](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK1901/Overview/)   | WisBlock Temperature and Humidity Sensor     |
+| Module                                                                                  | Function                        |
+| --------------------------------------------------------------------------------------- | ------------------------------- |
+| [RAK4631-R](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK4631-R/Overview/)   | WisBlock Core Module            |
+| [RAK3372](https://docs.rakwireless.com/Product-Categories/WisDuo/RAK3172-Evaluation-Board/)   | WisBlock Core Module            |
+| [RAK11722](https://docs.rakwireless.com/Product-Categories/WisDuo/RAK11722/Overview/)   | WisBlock Core Module            |
+| [RAK19003](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK19003/Overview/) | WisBlock Base Board             |
+| [or RAK19007 (for RAK3372)](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK19007/Overview/) | WisBlock Base Board             |
+| [RAK13011](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK13011/Overview/)   | WisBlock Magnetic Switch     |
+| [Optional RAK1901](https://docs.rakwireless.com/Product-Categories/WisBlock/RAK1901/Overview/)   | WisBlock Temperature and Humidity Sensor     |
 
 ----
 
@@ -98,28 +98,17 @@ For this tutorial I chose the second option:
 
 <b>1. IDE </b>
 
-  Open Source Arduino BSP and PlatformIO
-  - [PlatformIO](https://platformio.org/install)
-  - [Adafruit nRF52 BSP](https://docs.platformio.org/en/latest/boards/nordicnrf52/adafruit_feather_nrf52832.html)
-  - [Patch to use RAK4631 with PlatformIO](https://github.com/RAKWireless/WisBlock/tree/master/PlatformIO)    
-
   RUI3
   - [Arduino IDE](https://www.arduino.cc/en/software) (requires some file name changes and manual installation of libraries)
-  - [RUI3 BSP for RAK4631 and RAK3372](hhttps://github.com/RAKWireless/RAKwireless-Arduino-BSP-Index)
+  - [RUI3 BSP for RAK4631, RAK3372 and RAK11722](https://github.com/RAKWireless/RAKwireless-Arduino-BSP-Index)
 
 <b>2. LoRaWAN and BLE Communication </b>
 
-  Open Source Arduino BSP and PlatformIO
-  - [WisBlock-API](https://registry.platformio.org/libraries/beegee-tokyo/WisBlock-API)
-  - [SX126x-Arduino LoRaWAN library](https://registry.platformio.org/libraries/beegee-tokyo/SX126x-Arduino)
-
-  Both BSP versions
   - [CayenneLPP](https://registry.platformio.org/libraries/sabas1080/CayenneLPP)
   - [ArduinoJson](https://registry.platformio.org/libraries/bblanchon/ArduinoJson)
 
 ### 📝 NOTE
-> When using PlatformIO, the required libraries are automatically installed.
-If the RUI3 version is used in the Arduino IDE, all libraries must be installed manually with the Arduino IDE Library Manager.
+For the RUI3 version, all libraries must be installed manually with the Arduino IDE Library Manager.
 
 
 ----
@@ -127,78 +116,102 @@ If the RUI3 version is used in the Arduino IDE, all libraries must be installed 
 
 ## How Does the Application Work?
 
-In both the open source and the RUI3 version, the WisBlock Core module is going into sleep mode after it connected to the LoRaWAN server.    
+The WisBlock Core module is going into sleep mode after it connected to the LoRaWAN server.    
 
 There are two events that are waking up the WisBlock Core module:    
 - Door opening or closing event triggers an interrupt 
 - (optional) the module can wakeup in a configurable interval to send an _**\<I am Alive\>**_ message to the LoRaWAN server. 
 
-Everything else is handled in the background by RUI3 or the WisBlock-API. 
+Everything else is handled in the background by RUI3. 
 
 ### 📝 NOTE    
 > Code examples used are from the PlatformIO version of the code.    
 These is not the complete code, only snippets taken from the sources.    
 
 
-In case a door opening or closing event is detected, the application will receive a wake up signal from the interrupt callback. 
+In case a door opening or closing event is detected, the application will receive a wake up signal from the interrupt callback. It will then start the debounce logic by starting a timer to recheck the signal status. 
 
 ```cpp
 void switch_int_handler(void)
 {
-	switch_status = digitalRead(SWITCH_INT);
-	api_wake_loop(SWITCH_CHANGE);
+	MYLOG("REED", "Interrupt, start bounce check");
+	switch_status = digitalRead(SW_INT_PIN);
+	api.system.timer.start(RAK_TIMER_2, 50, NULL);
 }
 ```
 
 The application will then check the status of the relay to eliminate bouncing effects. 
 
 ```cpp
-if (switch_status == (uint32_t)digitalRead(SWITCH_INT))
+void switch_bounce_check(void *)
 {
-	MYLOG("SWITCH", "Switch Status confirmed");
-}
-else
-{
-	MYLOG("SWITCH", "Switch bouncing");
-	return;
-}
+	MYLOG("REED", "Bounce check");
+	int new_switch_status = digitalRead(SW_INT_PIN);
+	if (new_switch_status != switch_status)
+	{
+		MYLOG("REED", "Bounce detected");
+		return;
+	}
+	if (switch_status == LOW)
+	{
+		if (!Fifo.enQueue(false))
+		{
+			MYLOG("REED", "FiFo full");
+			return;
+		}
+	}
+	else
+	{
+		if (!Fifo.enQueue(true))
+		{
+			MYLOG("REED", "FiFo full");
+			return;
+		}
+	}
+
+	// ...
 ```
 
 Next the event will be added to the ring buffer. If there is still a packet sending activity, a timer will be started to delay the next packet sending    
 
 ```cpp
-// Add event to queue
-MYLOG("APP", "Adding event to queue, pending %ld", uxQueueMessagesWaiting(event_queue));
-xQueueSendToBack(event_queue, &switch_status, 0);
-
-if (lora_busy)
-{
-	delayed_sending.start();
-	return;
-}
-else
-{
-	g_task_event_type |= STATUS;
+/
+	MYLOG("REED", "Added event to queue");
+	if (handler_available)
+	{
+		MYLOG("REED", "Start event handler");
+		// Wake the switch handler
+		handler_available = false;
+		handle_rak13011(NULL);
+	}
 }
 ```
 
 In case it is possible to send the packet immediately, the event type is changed and the sending routine is called. First the battery level is measured, then the oldest event status is pulled ring buffer and both values are added to the LoRaWAN packet.
 ```cpp
-// Reset the packet
-g_solution_data.reset();
+	if (!tx_active)
+	{
+		// Reset automatic interval sending if active
+		if (g_send_repeat_time != 0)
+		{
+			// Restart a timer
+			api.system.timer.stop(RAK_TIMER_0);
+			api.system.timer.start(RAK_TIMER_0, g_send_repeat_time, NULL);
+		}
 
-// Get battery level
-float batt_level_f = read_batt();
-g_solution_data.addVoltage(LPP_CHANNEL_BATT, batt_level_f / 1000.0);
+		// Clear payload
+		g_solution_data.reset();
 
-// Add switch status, get the event out of the queue
-uint32_t old_event = 0;
-xQueueReceive(event_queue, &old_event, 0);
-MYLOG("APP", "Pulled event from queue, pending %ld", uxQueueMessagesWaiting(event_queue));
+		noInterrupts();
+		g_solution_data.addPresence(LPP_CHANNEL_SWITCH, !Fifo.deQueue() ? 0 : 1);
+		interrupts();
 
-g_solution_data.addPresence(LPP_CHANNEL_SWITCH, old_event);
+		// Add battery voltage
+		g_solution_data.addVoltage(LPP_CHANNEL_BATT, api.system.bat.get());
 
-lmh_error_status result = send_lora_packet(g_solution_data.getBuffer(), g_solution_data.getSize());
+		// Send the packet
+		send_packet();
+	}
 ```
 
 ----

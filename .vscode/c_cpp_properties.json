@@ -3,7 +3,7 @@
     "configurations": [
         {
             "name": "Arduino",
-            "compilerPath": "C:\\Users\\Bernd\\AppData\\Local\\Arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\bin\\arm-none-eabi-g++",
+            "compilerPath": "C:\\Users\\Bernd\\AppData\\Local\\Arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\bin\\arm-none-eabi-g++",
             "compilerArgs": [
                 "-mcpu=cortex-m4",
                 "-mthumb",
@@ -81,12 +81,12 @@
                 "C:\\Users\\Bernd\\AppData\\Local\\Arduino15\\packages\\rak_rui\\hardware\\stm32\\4.0.0\\variants\\WisDuo_RAK3172_Evaluation_Board",
                 "D:\\Documents\\Arduino\\libraries\\CayenneLPP\\src",
                 "D:\\Documents\\Arduino\\libraries\\ArduinoJson\\src",
-                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1",
-                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1\\arm-none-eabi",
-                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1\\backward",
-                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\lib\\gcc\\arm-none-eabi\\9.2.1\\include",
-                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\lib\\gcc\\arm-none-eabi\\9.2.1\\include-fixed",
-                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rakwireless\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include"
+                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1",
+                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1\\arm-none-eabi",
+                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include\\c++\\9.2.1\\backward",
+                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\lib\\gcc\\arm-none-eabi\\9.2.1\\include",
+                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\lib\\gcc\\arm-none-eabi\\9.2.1\\include-fixed",
+                "c:\\users\\bernd\\appdata\\local\\arduino15\\packages\\rak_rui\\tools\\arm-none-eabi-gcc\\9-2019q4\\arm-none-eabi\\include"
             ],
             "forcedInclude": [
                 "C:\\Users\\Bernd\\AppData\\Local\\Arduino15\\packages\\rak_rui\\hardware\\stm32\\4.0.0\\cores\\STM32WLE\\component\\rui_v3_api\\Arduino.h"
