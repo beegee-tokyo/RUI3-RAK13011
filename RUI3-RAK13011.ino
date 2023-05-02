@@ -124,13 +124,14 @@ void setup()
 	Serial.println("RAKwireless RUI3 Node");
 	Serial.println("------------------------------------------------------");
 	Serial.println("Setup the device with WisToolBox or AT commands before using it");
+	Serial.printf("Ver %s\n", api.system.firmwareVer.get().c_str());
 	Serial.println("------------------------------------------------------");
 
 	// Initialize module
 	Wire.begin();
 	if (!init_rak13011())
 	{
-		MYLOG("MODS", "Could not initialize RAK13011");
+		// MYLOG("MODS", "Could not initialize RAK13011");
 	}
 	else
 	{
@@ -196,6 +197,9 @@ void setup()
 
 	// To be checked if this makes sense
 	// api.lorawan.join();
+
+	// Force low power mode
+	api.system.lpm.set(1);
 }
 
 /**

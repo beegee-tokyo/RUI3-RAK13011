@@ -1,7 +1,7 @@
 {
-    "configuration": "debug=l2,supportat=1",
+    "configuration": "debug=l0,supportat=1",
     "board": "rak_rui:stm32:WisDuoRAK3172EvaluationBoard",
-    "port": "COM3",
+    "port": "COM20",
     "sketch": "RUI3-RAK13011.ino",
     "output": "build"
 }

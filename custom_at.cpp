@@ -123,16 +123,10 @@ int status_handler(SERIAL_PORT port, char *cmd, stParam *param)
 	if (param->argc == 1 && !strcmp(param->argv[0], "?"))
 	{
 		Serial.println("Device Status:");
-		/// \todo old API call
-		value_str = api.system.modelId.get();
-		/// \todo new API call
-		// value_str = api.system.hwModel.get();
+		value_str = api.system.hwModel.get();
 		value_str.toUpperCase();
 		Serial.printf("Module: %s\r\n", value_str.c_str());
-		/// \todo old API call
-		Serial.printf("Version: %s\r\n", api.system.firmwareVersion.get().c_str());
-		/// \todo new API call
-		// Serial.printf("Version: %s\r\n", api.system.firmwareVer.get().c_str());
+		Serial.printf("Version: %s\r\n", api.system.firmwareVer.get().c_str());
 		Serial.printf("Send time: %d s\r\n", g_send_repeat_time / 1000);
 		nw_mode = api.lorawan.nwm.get();
 		Serial.printf("Network mode %s\r\n", nwm_list[nw_mode]);
