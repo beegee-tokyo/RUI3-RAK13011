@@ -93,6 +93,8 @@ void joinCallback(int32_t status)
  */
 void setup()
 {
+	// api.ble.advertise.start(30);
+
 	if (api.lorawan.nwm.get() == 1)
 	{
 		g_confirmed_mode = api.lorawan.cfm.get();
@@ -112,15 +114,15 @@ void setup()
 	pinMode(LED_BLUE, OUTPUT);
 	digitalWrite(LED_BLUE, HIGH);
 
-	pinMode(WB_IO2, OUTPUT);
-	digitalWrite(WB_IO2, HIGH);
+	// pinMode(WB_IO2, OUTPUT);
+	// digitalWrite(WB_IO2, LOW);
 
 	// Start Serial
 	Serial.begin(115200);
 
 	// Delay for 5 seconds to give the chance for AT+BOOT
 	delay(5000);
-
+	// api.system.firmwareVer.set("RUI_4.0.7_RAK3172-E");
 	Serial.println("RAKwireless RUI3 Node");
 	Serial.println("------------------------------------------------------");
 	Serial.println("Setup the device with WisToolBox or AT commands before using it");
@@ -228,6 +230,9 @@ void sensor_handler(void *)
 	// Add battery voltage
 	g_solution_data.addVoltage(LPP_CHANNEL_BATT, api.system.bat.get());
 
+	// Add last switch status
+	g_solution_data.addPresence(LPP_CHANNEL_SWITCH, switch_status);
+	
 	// Send the packet
 	send_packet();
 }

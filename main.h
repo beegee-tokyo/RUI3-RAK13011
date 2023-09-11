@@ -14,7 +14,7 @@
 // Debug
 // Debug output set to 0 to disable app debug output
 #ifndef MY_DEBUG
-#define MY_DEBUG 1
+#define MY_DEBUG 0
 #endif
 
 #if MY_DEBUG > 0
@@ -50,6 +50,7 @@ extern WisCayenne g_solution_data;
 bool init_rak13011(void);
 void handle_rak13011(void *);
 #define LPP_CHANNEL_SWITCH 48 // RAK13011
+extern volatile int switch_status;
 
 // Custom AT commands
 bool init_status_at(void);
