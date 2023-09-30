@@ -203,7 +203,9 @@ void setup()
 	// Force low power mode
 	api.system.lpm.set(1);
 
-#ifndef _VARIANT_RAK3172_ &&_VARIANT_RAK3172_SIP_
+#if defined(_VARIANT_RAK3172_) || defined(_VARIANT_RAK3172_SIP_)
+// No BLE
+#else
 	Serial6.begin(115200, RAK_AT_MODE);
 	api.ble.advertise.start(30);
 #endif
@@ -237,7 +239,7 @@ void sensor_handler(void *)
 
 	// Add last switch status
 	g_solution_data.addPresence(LPP_CHANNEL_SWITCH, switch_status);
-	
+
 	// Send the packet
 	send_packet();
 }

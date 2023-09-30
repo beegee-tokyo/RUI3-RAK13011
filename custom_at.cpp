@@ -10,20 +10,20 @@
  */
 #include "main.h"
 
-#ifdef _VARIANT_RAK3172_ || _VARIANT_RAK3172_SIP_
+#if defined (_VARIANT_RAK3172_) || defined (_VARIANT_RAK3172_SIP_)
 #define AT_PRINTF(...)              \
 	do                              \
 	{                               \
-		AT_PRINTF(__VA_ARGS__); \
-		AT_PRINTF("r\\n");      \
+		Serial.printf(__VA_ARGS__); \
+		Serial.printf("r\\n");      \
 	} while (0);                    \
 	delay(100)
 #else // RAK4630 || RAK11720
 #define AT_PRINTF(...)               \
 	do                               \
 	{                                \
-		AT_PRINTF(__VA_ARGS__);  \
-		AT_PRINTF("\r\n");       \
+		Serial.printf(__VA_ARGS__);  \
+		Serial.printf("\r\n");       \
 		Serial6.printf(__VA_ARGS__); \
 		Serial6.printf("\r\n");      \
 	} while (0);                     \
